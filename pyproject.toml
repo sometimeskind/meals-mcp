@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meals-mcp"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "fastmcp>=4.1.0,<5",
+    "py-key-value-aio[postgresql]>=0.4.6",
+    "asyncpg>=0.32.0",
+    "httpx>=0.28.1",
+    "prometheus-client>=0.26.0",
+    "cryptography>=50.0.2",
+]
+
+[project.scripts]
+meals-mcp = "meals_mcp.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["meals_mcp*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
