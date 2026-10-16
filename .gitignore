@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.venv/
+.env
+# bootstrap output: the Google refresh token. Seal it, never commit it.
+credentials*.json
+client_secret*.json
