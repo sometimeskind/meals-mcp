@@ -1,0 +1,82 @@
+"""Settings, read from MEALS_* environment variables."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from zoneinfo import ZoneInfo
+
+
+def _env(name: str, default: str | None = None) -> str:
+    value = os.environ.get(name, default)
+    if value is None or value == "":
+        raise RuntimeError(f"{name} is required")
+    return value
+
+
+def _int(name: str, default: int) -> int:
+    return int(os.environ.get(name, str(default)))
+
+
+@dataclass(frozen=True)
+class Limits:
+    """The guard rails every write goes through."""
+
+    tz: ZoneInfo
+    window_past_days: int = 7
+    window_future_days: int = 28
+    writes_per_hour: int = 30
+    freezer_old_days: int = 90
+    title_max: int = 60
+
+    @classmethod
+    def from_env(cls) -> Limits:
+        return cls(
+            # No default: "today" and "tomorrow" must be the household's, not the pod's UTC.
+            tz=ZoneInfo(_env("MEALS_TZ")),
+            window_past_days=_int("MEALS_WINDOW_PAST_DAYS", 7),
+            window_future_days=_int("MEALS_WINDOW_FUTURE_DAYS", 28),
+            writes_per_hour=_int("MEALS_WRITES_PER_HOUR", 30),
+            freezer_old_days=_int("MEALS_FREEZER_OLD_DAYS", 90),
+            title_max=_int("MEALS_TITLE_MAX", 60),
+        )
+
+
+@dataclass(frozen=True)
+class ServerSettings:
+    database_url: str
+    google_credentials: str
+    base_url: str
+    oidc_config_url: str
+    oidc_client_id: str
+    oidc_client_secret: str
+    jwt_signing_key: str
+    storage_key: str
+    required_group: str
+    allowed_redirects: list[str] = field(default_factory=list)
+    host: str = "0.0.0.0"
+    port: int = 8000
+    metrics_port: int = 9090
+
+    @classmethod
+    def from_env(cls) -> ServerSettings:
+        return cls(
+            database_url=_env("MEALS_DATABASE_URL"),
+            google_credentials=_env("MEALS_GOOGLE_CREDENTIALS", "/secrets/google/credentials.json"),
+            base_url=_env("MEALS_BASE_URL"),
+            oidc_config_url=_env("MEALS_OIDC_CONFIG_URL"),
+            oidc_client_id=_env("MEALS_OIDC_CLIENT_ID"),
+            oidc_client_secret=_env("MEALS_OIDC_CLIENT_SECRET"),
+            jwt_signing_key=_env("MEALS_JWT_SIGNING_KEY"),
+            storage_key=_env("MEALS_STORAGE_KEY"),
+            required_group=_env("MEALS_REQUIRED_GROUP", "meals"),
+            allowed_redirects=[
+                u.strip()
+                for u in _env(
+                    "MEALS_ALLOWED_REDIRECTS", "https://claude.ai/api/mcp/auth_callback"
+                ).split(",")
+                if u.strip()
+            ],
+            port=_int("MEALS_PORT", 8000),
+            metrics_port=_int("MEALS_METRICS_PORT", 9090),
+        )

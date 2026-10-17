@@ -1,0 +1,6 @@
+fastmcp==4.1.0
+py-key-value-aio[postgresql]==0.4.6
+asyncpg==0.32.0
+httpx==0.28.1
+prometheus-client==0.26.0
+cryptography==50.0.2
