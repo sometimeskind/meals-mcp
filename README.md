@@ -77,7 +77,7 @@ token.
 
 ```sh
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -e .
-.venv/bin/python -m meals_mcp bootstrap --client-secret client_secret.json --out credentials.json --timezone Europe/London
+.venv/bin/python -m meals_mcp bootstrap --client-secret client_secret.json --out credentials.json --timezone Europe/Amsterdam
 ```
 
 It runs the consent flow, checks that the grant is exactly `calendar.app.created`, creates Meals,

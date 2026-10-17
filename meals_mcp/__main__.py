@@ -27,6 +27,8 @@ def build_auth(settings, store):
         client_storage=FernetEncryptionWrapper(
             key_value=PostgreSQLStore(pool=store.pool, table_name="oauth_proxy_kv"),
             fernet=Fernet(settings.storage_key),
+            # A rotated key reads old rows as missing: every user reconnects, nothing crashes.
+            raise_on_decryption_error=False,
         ),
     )
 
@@ -61,7 +63,7 @@ def main() -> None:
     boot = sub.add_parser("bootstrap", help="workstation: consent, create the Meals calendar, write credentials")
     boot.add_argument("--client-secret", required=True, help="the OAuth client JSON downloaded from GCP")
     boot.add_argument("--out", required=True, help="where to write the credentials JSON (mode 0600)")
-    boot.add_argument("--timezone", required=True, help="the Meals calendar's timezone, e.g. Europe/London")
+    boot.add_argument("--timezone", required=True, help="the Meals calendar's timezone, e.g. Europe/Amsterdam")
     boot.add_argument("--calendar-id", help="re-consent only: keep this existing Meals calendar")
     check = sub.add_parser("check", help="workstation: verify the token's reach against the live calendar")
     check.add_argument("--credentials", required=True)
