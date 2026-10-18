@@ -63,7 +63,8 @@ async def test_dcr_only_admits_the_claude_callback_and_stores_encrypted(issuer, 
         required_group="meals",
         allowed_redirects=[CLAUDE],
     )
-    app = build_server(svc, lambda: None, auth=build_auth(settings, store)).http_app()
+    auth = build_auth(settings, store)
+    app = build_server(svc, lambda: None, auth=auth).http_app()
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://meals.example.test") as c:
             meta = (await c.get("/.well-known/oauth-authorization-server")).json()
@@ -82,3 +83,11 @@ async def test_dcr_only_admits_the_claude_callback_and_stores_encrypted(issuer, 
         rows = await conn.fetch("SELECT * FROM oauth_proxy_kv")
     assert rows, "client registration not persisted in Postgres"
     assert all(CLAUDE not in json.dumps([str(v) for v in r.values()]) for r in rows), "stored in plaintext"
+
+    # Pocket ID rejects a resource that isn't one of its APIs, so the client's is not forwarded
+    # (a private FastMCP method: the consent page sits between /authorize and the redirect).
+    upstream = auth._build_upstream_authorize_url(
+        "txn", {"resource": "https://meals.example.test/mcp", "scopes": ["openid", "groups"]})
+    query = httpx.URL(upstream).params
+    assert "resource" not in query
+    assert query["scope"] == "openid groups"
