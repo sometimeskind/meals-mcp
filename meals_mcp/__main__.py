@@ -23,6 +23,9 @@ def build_auth(settings, store):
         verify_id_token=True,
         required_scopes=["openid", "profile", "email", "groups"],
         allowed_client_redirect_uris=settings.allowed_redirects,
+        # The client's `resource` names this server, whose tokens the proxy issues itself.
+        # Pocket ID only logs the user in, and rejects a resource that isn't one of its APIs.
+        forward_resource=False,
         jwt_signing_key=settings.jwt_signing_key,
         client_storage=FernetEncryptionWrapper(
             key_value=PostgreSQLStore(pool=store.pool, table_name="oauth_proxy_kv"),
