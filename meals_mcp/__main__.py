@@ -48,7 +48,8 @@ async def serve() -> None:
     calendar = GoogleCalendar(GoogleCredentials.load(settings.google_credentials))
     service = MealsService(calendar, store, limits)
     mcp = build_server(service, pocket_id_user(settings.required_group), auth=build_auth(settings, store))
-    start_http_server(settings.metrics_port)
+    # A plain socket on "::" also accepts IPv4 (unlike uvicorn's, see ServerSettings.host).
+    start_http_server(settings.metrics_port, addr="::")
     try:
         await mcp.run_async(transport="http", host=settings.host, port=settings.port)
     finally:

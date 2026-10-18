@@ -54,7 +54,9 @@ class ServerSettings:
     storage_key: str
     required_group: str
     allowed_redirects: list[str] = field(default_factory=list)
-    host: str = "0.0.0.0"
+    # "" binds every address of both families. The cluster is dual-stack and the gateway may
+    # pick the IPv6 endpoint; uvicorn makes "::" IPv6-only.
+    host: str = ""
     port: int = 8000
     metrics_port: int = 9090
 
