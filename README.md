@@ -12,7 +12,7 @@ the whole app. It runs in the home cluster (`kubernetes/meals/` in homelab).
 | Plan | A Google secondary calendar, *Meals*, created by this app's own OAuth client with only `calendar.app.created`, so the token reaches Meals and nothing else. All-day `Lunch:`, `Dinner:` and `Prep:` events. The calendar is the only store of the plan; homelab's calendar-sync mirrors it into Stalwart for the wall tablet. |
 | State | Postgres (a CNPG `Database` on the shared cluster): `recipes`, `freezer_batches`, `freezer_reservations`, `audit_log`, and `oauth_proxy_kv` (the OAuth proxy's Fernet-encrypted client and token store). The schema is created on start. |
 | Auth | FastMCP `OIDCProxy` in front of Pocket ID. Claude registers through the proxy's DCR, limited to `MEALS_ALLOWED_REDIRECTS`. Tools refuse users outside the `meals` group (the `groups` claim of the Pocket ID id_token); the audit records the Pocket ID `sub`. |
-| Metrics | Port 9090: `meals_tool_calls_total{tool,outcome}`, `meals_google_auth_failures_total`, `meals_rate_limited_total`. |
+| Metrics | Port 9090: `meals_tool_calls_total{tool,outcome}`, `meals_google_auth_failures_total`, `meals_rate_limited_total{kind}`. |
 
 ### Tools
 
@@ -26,8 +26,10 @@ There are no bulk tools, no raw calendar access and no recipe deletion.
 
 - **Window**: meal and prep dates from 7 days ago to 28 days ahead, in `MEALS_TZ`. A back-filled
   freezer batch may carry any past `made_on`.
-- **Rate**: 30 writes per rolling hour per user, counted from the audit log, so the limit survives
-  restarts. The refusal tells Claude when the next write is allowed.
+- **Rate**: two budgets per user per rolling hour, counted from the audit log, so they survive
+  restarts: 30 calendar writes (`set_meal`, `clear_meal`, `add_prep`, `remove_prep`; Google quota,
+  the two-way sync, the tablet) and 200 recipe and freezer writes (only our own database, so just a
+  runaway guard). The refusal names the budget and tells Claude when the next write is allowed.
 - **Audit**: every write records the user, the arguments, and the before/after state.
 - **Finding a meal**: each event the app writes carries a private `meals_slot` property. A
   hand-made event matches on a case-insensitive `Lunch:`/`Dinner:`/`Prep:` title prefix. Two or
@@ -64,7 +66,8 @@ There are no bulk tools, no raw calendar access and no recipe deletion.
 | `MEALS_STORAGE_KEY` | (required) | Fernet key for `oauth_proxy_kv`. Rotating it drops all registrations and tokens, and users reconnect |
 | `MEALS_REQUIRED_GROUP` | `meals` | |
 | `MEALS_ALLOWED_REDIRECTS` | `https://claude.ai/api/mcp/auth_callback` | Comma-separated; add `http://localhost:*` to test from Claude Code |
-| `MEALS_WRITES_PER_HOUR` | 30 | |
+| `MEALS_WRITES_PER_HOUR` | 30 | Calendar writes |
+| `MEALS_STORE_WRITES_PER_HOUR` | 200 | Recipe and freezer writes |
 | `MEALS_WINDOW_PAST_DAYS` / `_FUTURE_DAYS` | 7 / 28 | |
 | `MEALS_FREEZER_OLD_DAYS` | 90 | `list_freezer` flags older batches |
 | `MEALS_TITLE_MAX` | 60 | |

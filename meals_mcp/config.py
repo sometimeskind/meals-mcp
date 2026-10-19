@@ -25,7 +25,8 @@ class Limits:
     tz: ZoneInfo
     window_past_days: int = 7
     window_future_days: int = 28
-    writes_per_hour: int = 30
+    writes_per_hour: int = 30  # calendar writes
+    store_writes_per_hour: int = 200  # recipe and freezer writes
     freezer_old_days: int = 90
     title_max: int = 60
 
@@ -37,6 +38,7 @@ class Limits:
             window_past_days=_int("MEALS_WINDOW_PAST_DAYS", 7),
             window_future_days=_int("MEALS_WINDOW_FUTURE_DAYS", 28),
             writes_per_hour=_int("MEALS_WRITES_PER_HOUR", 30),
+            store_writes_per_hour=_int("MEALS_STORE_WRITES_PER_HOUR", 200),
             freezer_old_days=_int("MEALS_FREEZER_OLD_DAYS", 90),
             title_max=_int("MEALS_TITLE_MAX", 60),
         )

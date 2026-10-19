@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from meals_mcp.gcal import Conflict, GoogleAuthError
-from meals_mcp.service import MealsError
+from meals_mcp.service import CALENDAR_WRITES, MealsError
 from tests.conftest import PARTNER, TOM
 
 TODAY = date(2026, 10, 16)
@@ -52,7 +52,7 @@ async def test_duplicates_are_refused_without_writing(svc, calendar):
         await svc.set_meal(TOM, "2026-10-17", "dinner", free_text="c")
     assert sorted(e.summary for e in calendar.events.values()) == ["Dinner: a", "Dinner: b"]
     async with svc.store.tx() as tx:
-        assert await tx.writes_since(TOM.sub, svc.clock().replace(year=2000)) == []
+        assert await tx.writes_since(TOM.sub, svc.clock().replace(year=2000), CALENDAR_WRITES) == []
 
 
 async def test_conflict_rolls_back_the_freezer(svc, calendar):
@@ -104,10 +104,25 @@ async def test_rate_limit_is_per_user_and_rolls(svc, clock):
     for i in range(30):
         await svc.add_prep(TOM, "2026-10-17", f"step {i}")
         clock.advance(seconds=1)
-    with pytest.raises(MealsError, match=r"next write is allowed at 13:00"):
+    with pytest.raises(MealsError, match=r"30 calendar writes .* next one is allowed at 13:00"):
         await svc.add_prep(TOM, "2026-10-17", "one too many")
     await svc.add_prep(PARTNER, "2026-10-17", "other user is fine")
     clock.advance(minutes=60)
+    await svc.add_prep(TOM, "2026-10-17", "an hour on")
+
+
+async def test_recipe_and_freezer_writes_have_their_own_budget(svc, clock):
+    for i in range(30):
+        await svc.add_prep(TOM, "2026-10-17", f"step {i}")
+    # The calendar budget is spent, but recipes and freezer stock still go in.
+    await svc.add_recipe(TOM, "Chili", "# Chili\nBeans.")
+    await svc.add_freezer_batch(TOM, 2, "2026-10-01", name="Chili")
+    for i in range(198):
+        await svc.add_recipe(TOM, f"Soup {i}", "Water.")
+    with pytest.raises(MealsError, match=r"200 recipe and freezer writes per hour"):
+        await svc.add_recipe(TOM, "One too many", "Water.")
+    # Once both roll over, the calendar budget is back.
+    clock.advance(minutes=61)
     await svc.add_prep(TOM, "2026-10-17", "an hour on")
 
 
