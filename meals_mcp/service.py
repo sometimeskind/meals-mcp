@@ -87,6 +87,12 @@ def _text(value: str, what: str, limit: int = MAX_TEXT_CHARS) -> str:
     return value
 
 
+# Which audited tools count against which hourly budget (_rate). set_meal counts as a
+# calendar write even when it also reserves or adds freezer stock.
+CALENDAR_WRITES = ("set_meal", "clear_meal", "add_prep", "remove_prep")
+STORE_WRITES = ("add_recipe", "update_recipe", "adjust_freezer", "add_freezer_batch")
+
+
 class MealsService:
     def __init__(
         self,
@@ -116,15 +122,22 @@ class MealsService:
                 f"{self.limits.tz.key})"
             )
 
-    async def _rate(self, tx: Tx, user: User) -> None:
+    async def _rate(self, tx: Tx, user: User, kind: str) -> None:
+        """Two budgets: calendar writes are scarce (Google quota, the two-way sync and its
+        breaker, the tablet); recipe and freezer writes only touch our own database, so their
+        limit is a runaway guard, high enough to enter a cookbook in one sitting."""
         now = self.clock()
-        limit = self.limits.writes_per_hour
-        recent = await tx.writes_since(user.sub, now - timedelta(hours=1))
+        tools, limit = {
+            "calendar": (CALENDAR_WRITES, self.limits.writes_per_hour),
+            "store": (STORE_WRITES, self.limits.store_writes_per_hour),
+        }[kind]
+        recent = await tx.writes_since(user.sub, now - timedelta(hours=1), tools)
         if len(recent) >= limit:
-            metrics.RATE_LIMITED.inc()
+            metrics.RATE_LIMITED.labels(kind=kind).inc()
             free_at = (recent[len(recent) - limit] + timedelta(hours=1)).astimezone(self.limits.tz)
+            what = "calendar writes" if kind == "calendar" else "recipe and freezer writes"
             raise MealsError(
-                f"Write limit reached: {limit} writes per hour per user. The next write is "
+                f"Write limit reached: {limit} {what} per hour per user. The next one is "
                 f"allowed at {free_at:%H:%M} ({self.limits.tz.key}). Tell the user and stop; "
                 "do not retry before then."
             )
@@ -282,7 +295,7 @@ class MealsService:
         free_text = _text(free_text, "free_text") if free_text is not None else None
 
         async with self._lock, self.store.tx() as tx:
-            await self._rate(tx, user)
+            await self._rate(tx, user, "calendar")
             today = self.today()
             existing = await self._find(day, slot)
             result: dict[str, Any] = {}
@@ -378,7 +391,7 @@ class MealsService:
             res = await tx.reservation(day, slot)
             if existing is None and res is None:
                 return {"cleared": False, "reason": f"no {slot} planned on {day}"}
-            await self._rate(tx, user)
+            await self._rate(tx, user, "calendar")
             result: dict[str, Any] = {"cleared": True}
             if res:
                 await tx.release(day, slot)
@@ -405,7 +418,7 @@ class MealsService:
         if to_freezer is not None and not 1 <= to_freezer <= 20:
             raise MealsError("to_freezer is a container count from 1 to 20")
         async with self._lock, self.store.tx() as tx:
-            await self._rate(tx, user)
+            await self._rate(tx, user, "calendar")
             today = self.today()
             recipe = await tx.get_recipe(recipe_id) if recipe_id is not None else None
             if recipe_id is not None and recipe is None:
@@ -447,7 +460,7 @@ class MealsService:
             if slot_of(ev) != "prep":
                 raise MealsError(f"{ev.summary!r} is not a Prep event; use clear_meal for meals")
             self._window(ev.day)
-            await self._rate(tx, user)
+            await self._rate(tx, user, "calendar")
             result = await self._drop_made_batch(tx, ev.id, self.today()) or {}
             await self._cal(self.calendar.delete(ev))
             before = _entry(ev)
@@ -478,7 +491,7 @@ class MealsService:
                     f"A recipe named {name!r} already exists (id {ids}). Use update_recipe, or pass "
                     "allow_duplicate=true if this really is a different recipe."
                 )
-            await self._rate(tx, user)
+            await self._rate(tx, user, "store")
             recipe_id = await tx.add_recipe(name, text, tags, source, user.sub)
             args = {"name": name, "tags": tags, "source": source, "allow_duplicate": allow_duplicate}
             await self._audit(tx, user, "add_recipe", args, None, await tx.get_recipe(recipe_id))
@@ -510,7 +523,7 @@ class MealsService:
             before = await tx.get_recipe(recipe_id)
             if before is None:
                 raise MealsError(f"No recipe {recipe_id}")
-            await self._rate(tx, user)
+            await self._rate(tx, user, "store")
             await tx.update_recipe(recipe_id, fields, user.sub)
             after = await tx.get_recipe(recipe_id)
             args = {"recipe_id": recipe_id, "fields": sorted(fields)}
@@ -533,7 +546,7 @@ class MealsService:
                     f"batch #{label} has {batch.free} free containers ({batch.reserved} reserved); "
                     "clear a reserved meal first"
                 )
-            await self._rate(tx, user)
+            await self._rate(tx, user, "store")
             await tx.set_containers(batch.id, batch.containers + delta)
             after = await tx.batch_by_id(batch.id, today)
             assert after
@@ -568,7 +581,7 @@ class MealsService:
                 if recipe is None:
                     raise MealsError(f"No recipe {recipe_id}")
                 name = recipe["name"]
-            await self._rate(tx, user)
+            await self._rate(tx, user, "store")
             batch = await tx.add_batch(
                 self.today(), name=_text(name or "", "name"), recipe_id=recipe_id,
                 containers=containers, made_on=made, user=user.sub, note=note,

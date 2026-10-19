@@ -8,7 +8,7 @@ reservations are a table rather than derived from calendar events (operator deci
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -307,9 +307,13 @@ class Tx:
             json.dumps(after, default=str),
         )
 
-    async def writes_since(self, user: str, since: datetime) -> list[datetime]:
+    async def writes_since(self, user: str, since: datetime, tools: Sequence[str]) -> list[datetime]:
         rows = await self.c.fetch(
-            "SELECT at FROM audit_log WHERE user_sub = $1 AND at > $2 ORDER BY at", user, since
+            "SELECT at FROM audit_log WHERE user_sub = $1 AND at > $2 AND tool = ANY($3::text[])"
+            " ORDER BY at",
+            user,
+            since,
+            list(tools),
         )
         return [r["at"] for r in rows]
 
