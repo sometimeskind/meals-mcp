@@ -1,4 +1,4 @@
-"""Postgres state: recipes, freezer stock and reservations, and the audit log.
+"""Postgres state: recipes, freezer stock and reservations, planning rules, and the audit log.
 
 The meal plan itself lives only in the calendar (homelab #2047 decision 4). Freezer
 reservations are a table rather than derived from calendar events (operator decision
@@ -53,6 +53,15 @@ CREATE TABLE IF NOT EXISTS freezer_reservations (
     reserved_by text NOT NULL,
     created_at  timestamptz NOT NULL DEFAULT now(),
     UNIQUE (day, slot)
+);
+
+CREATE TABLE IF NOT EXISTS planning_rules (
+    id          serial PRIMARY KEY,
+    text        text NOT NULL,
+    created_by  text NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_by  text NOT NULL,
+    updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -165,6 +174,29 @@ class Tx:
     async def get_recipe(self, recipe_id: int) -> dict[str, Any] | None:
         row = await self.c.fetchrow("SELECT * FROM recipes WHERE id = $1", recipe_id)
         return _recipe(row) if row else None
+
+    async def list_rules(self) -> list[dict[str, Any]]:
+        rows = await self.c.fetch("SELECT id, text FROM planning_rules ORDER BY id")
+        return [dict(r) for r in rows]
+
+    async def get_rule(self, rule_id: int) -> dict[str, Any] | None:
+        row = await self.c.fetchrow("SELECT id, text FROM planning_rules WHERE id = $1", rule_id)
+        return dict(row) if row else None
+
+    async def add_rule(self, text: str, user: str) -> int:
+        return await self.c.fetchval(
+            "INSERT INTO planning_rules (text, created_by, updated_by) VALUES ($1, $2, $2) RETURNING id",
+            text, user,
+        )
+
+    async def update_rule(self, rule_id: int, text: str, user: str) -> None:
+        await self.c.execute(
+            "UPDATE planning_rules SET text = $2, updated_by = $3, updated_at = now() WHERE id = $1",
+            rule_id, text, user,
+        )
+
+    async def remove_rule(self, rule_id: int) -> None:
+        await self.c.execute("DELETE FROM planning_rules WHERE id = $1", rule_id)
 
     async def recipes_named(self, name: str) -> list[dict[str, Any]]:
         rows = await self.c.fetch("SELECT * FROM recipes WHERE name_key = $1", name_key(name))
