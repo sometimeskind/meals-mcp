@@ -12,6 +12,7 @@ from tests.conftest import TOM
 TOOLS = {
     "get_week", "search_recipes", "get_recipe", "list_freezer", "set_meal", "clear_meal", "add_prep",
     "remove_prep", "add_recipe", "update_recipe", "adjust_freezer", "add_freezer_batch",
+    "list_rules", "add_rule", "update_rule", "remove_rule",
 }
 
 

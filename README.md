@@ -10,17 +10,23 @@ the whole app. It runs in the home cluster (`kubernetes/meals/` in homelab).
 | Piece | What |
 |-------|------|
 | Plan | A Google secondary calendar, *Meals*, created by this app's own OAuth client with only `calendar.app.created`, so the token reaches Meals and nothing else. All-day `Lunch:`, `Dinner:` and `Prep:` events. The calendar is the only store of the plan; homelab's calendar-sync mirrors it into Stalwart for the wall tablet. |
-| State | Postgres (a CNPG `Database` on the shared cluster): `recipes`, `freezer_batches`, `freezer_reservations`, `audit_log`, and `oauth_proxy_kv` (the OAuth proxy's Fernet-encrypted client and token store). The schema is created on start. |
+| State | Postgres (a CNPG `Database` on the shared cluster): `recipes`, `freezer_batches`, `freezer_reservations`, `planning_rules`, `audit_log`, and `oauth_proxy_kv` (the OAuth proxy's Fernet-encrypted client and token store). The schema is created on start. |
 | Auth | FastMCP `OIDCProxy` in front of Pocket ID. Claude registers through the proxy's DCR, limited to `MEALS_ALLOWED_REDIRECTS`. Tools refuse users outside the `meals` group (the `groups` claim of the Pocket ID id_token); the audit records the Pocket ID `sub`. |
 | Metrics | Port 9090: `meals_tool_calls_total{tool,outcome}`, `meals_google_auth_failures_total`, `meals_rate_limited_total{kind}`. |
 
 ### Tools
 
-Read: `get_week`, `search_recipes`, `get_recipe`, `list_freezer`.
+Read: `get_week`, `search_recipes`, `get_recipe`, `list_freezer`, `list_rules`.
 Write: `set_meal`, `clear_meal`, `add_prep`, `remove_prep`, `add_recipe`, `update_recipe`,
-`adjust_freezer`, `add_freezer_batch`.
+`adjust_freezer`, `add_freezer_batch`, `add_rule`, `update_rule`, `remove_rule`.
 
 There are no bulk tools, no raw calendar access and no recipe deletion.
+
+**Planning rules** are the household's standing preferences ("no more than 3 meat dinners a
+week", "batch cook during the week"): shared by both users, at most 30 of up to 300 characters.
+`get_week` returns them with every week, so Claude sees them whenever it plans. The server only
+stores them; Claude applies them and says when a request conflicts with one. A removed rule's
+text stays in the audit log.
 
 ### Rules the code enforces
 
@@ -28,7 +34,7 @@ There are no bulk tools, no raw calendar access and no recipe deletion.
   freezer batch may carry any past `made_on`.
 - **Rate**: two budgets per user per rolling hour, counted from the audit log, so they survive
   restarts: 30 calendar writes (`set_meal`, `clear_meal`, `add_prep`, `remove_prep`; Google quota,
-  the two-way sync, the tablet) and 200 recipe and freezer writes (only our own database, so just a
+  the two-way sync, the tablet) and 200 recipe, freezer and rule writes (only our own database, so just a
   runaway guard). The refusal names the budget and tells Claude when the next write is allowed.
 - **Audit**: every write records the user, the arguments, and the before/after state.
 - **Finding a meal**: each event the app writes carries a private `meals_slot` property. A
