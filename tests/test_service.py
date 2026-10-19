@@ -270,3 +270,37 @@ async def test_old_batches_are_flagged(svc):
 async def test_backfill_must_be_past(svc):
     with pytest.raises(MealsError, match="future"):
         await svc.add_freezer_batch(TOM, 1, "2026-10-20", name="x")
+
+
+# --- planning rules ------------------------------------------------------------------------
+
+
+async def test_rules_are_shared_returned_by_get_week_and_audited(svc, store):
+    a = (await svc.add_rule(TOM, "  No more than 3 meat\ndinners a week "))["rule_id"]
+    b = (await svc.add_rule(PARTNER, "Batch cook during the week"))["rule_id"]
+    await svc.update_rule(PARTNER, a, "No more than 2 meat dinners a week")
+    week = await svc.get_week()
+    assert week["rules"] == [
+        {"id": a, "text": "No more than 2 meat dinners a week"},
+        {"id": b, "text": "Batch cook during the week"},
+    ]
+    assert "Planning rules" in week["notice"]
+    await svc.remove_rule(TOM, b)
+    assert [r["id"] for r in (await svc.list_rules())["rules"]] == [a]
+    async with store.pool.acquire() as c:
+        rows = await c.fetch("SELECT tool, before FROM audit_log ORDER BY id")
+    assert [r["tool"] for r in rows] == ["add_rule", "add_rule", "update_rule", "remove_rule"]
+    assert "Batch cook" in rows[3]["before"]  # a removed rule can be restored from the audit
+
+
+async def test_rule_limits(svc):
+    with pytest.raises(MealsError, match="1 to 300"):
+        await svc.add_rule(TOM, "   ")
+    with pytest.raises(MealsError, match="1 to 300"):
+        await svc.add_rule(TOM, "x" * 301)
+    with pytest.raises(MealsError, match="No rule 99"):
+        await svc.update_rule(TOM, 99, "anything")
+    for i in range(30):
+        await svc.add_rule(TOM, f"rule {i}")
+    with pytest.raises(MealsError, match="already 30 rules"):
+        await svc.add_rule(TOM, "one too many")
