@@ -1,4 +1,4 @@
-"""Postgres state: recipes, freezer stock and reservations, planning rules, and the audit log.
+"""Postgres state: recipes, freezer stock and reservations, planning and food rules, and the audit log.
 
 The meal plan itself lives only in the calendar (homelab #2047 decision 4). Freezer
 reservations are a table rather than derived from calendar events (operator decision
@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS planning_rules (
     updated_by  text NOT NULL,
     updated_at  timestamptz NOT NULL DEFAULT now()
 );
+-- Holds both kinds of rule; the table predates food rules, hence its name.
+ALTER TABLE planning_rules ADD COLUMN IF NOT EXISTS
+    kind text NOT NULL DEFAULT 'planning' CHECK (kind IN ('planning', 'food'));
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id        bigserial PRIMARY KEY,
@@ -175,24 +178,26 @@ class Tx:
         row = await self.c.fetchrow("SELECT * FROM recipes WHERE id = $1", recipe_id)
         return _recipe(row) if row else None
 
-    async def list_rules(self) -> list[dict[str, Any]]:
-        rows = await self.c.fetch("SELECT id, text FROM planning_rules ORDER BY id")
+    async def list_rules(self, kind: str | None = None) -> list[dict[str, Any]]:
+        rows = await self.c.fetch(
+            "SELECT id, kind, text FROM planning_rules WHERE $1::text IS NULL OR kind = $1 ORDER BY id", kind
+        )
         return [dict(r) for r in rows]
 
     async def get_rule(self, rule_id: int) -> dict[str, Any] | None:
-        row = await self.c.fetchrow("SELECT id, text FROM planning_rules WHERE id = $1", rule_id)
+        row = await self.c.fetchrow("SELECT id, kind, text FROM planning_rules WHERE id = $1", rule_id)
         return dict(row) if row else None
 
-    async def add_rule(self, text: str, user: str) -> int:
+    async def add_rule(self, kind: str, text: str, user: str) -> int:
         return await self.c.fetchval(
-            "INSERT INTO planning_rules (text, created_by, updated_by) VALUES ($1, $2, $2) RETURNING id",
-            text, user,
+            "INSERT INTO planning_rules (kind, text, created_by, updated_by) VALUES ($1, $2, $3, $3) RETURNING id",
+            kind, text, user,
         )
 
-    async def update_rule(self, rule_id: int, text: str, user: str) -> None:
+    async def update_rule(self, rule_id: int, kind: str, text: str, user: str) -> None:
         await self.c.execute(
-            "UPDATE planning_rules SET text = $2, updated_by = $3, updated_at = now() WHERE id = $1",
-            rule_id, text, user,
+            "UPDATE planning_rules SET kind = $2, text = $3, updated_by = $4, updated_at = now() WHERE id = $1",
+            rule_id, kind, text, user,
         )
 
     async def remove_rule(self, rule_id: int) -> None:
