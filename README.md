@@ -10,7 +10,7 @@ the whole app. It runs in the home cluster (`kubernetes/meals/` in homelab).
 | Piece | What |
 |-------|------|
 | Plan | A Google secondary calendar, *Meals*, created by this app's own OAuth client with only `calendar.app.created`, so the token reaches Meals and nothing else. All-day `Lunch:`, `Dinner:` and `Prep:` events. The calendar is the only store of the plan; homelab's calendar-sync mirrors it into Stalwart for the wall tablet. |
-| State | Postgres (a CNPG `Database` on the shared cluster): `recipes`, `freezer_batches`, `freezer_reservations`, `planning_rules`, `audit_log`, and `oauth_proxy_kv` (the OAuth proxy's Fernet-encrypted client and token store). The schema is created on start. |
+| State | Postgres (a CNPG `Database` on the shared cluster): `recipes`, `freezer_batches`, `freezer_reservations`, `planning_rules` (both kinds of rule), `audit_log`, and `oauth_proxy_kv` (the OAuth proxy's Fernet-encrypted client and token store). The schema is created on start. |
 | Auth | FastMCP `OIDCProxy` in front of Pocket ID. Claude registers through the proxy's DCR, limited to `MEALS_ALLOWED_REDIRECTS`. Tools refuse users outside the `meals` group (the `groups` claim of the Pocket ID id_token); the audit records the Pocket ID `sub`. |
 | Metrics | Port 9090: `meals_tool_calls_total{tool,outcome}`, `meals_google_auth_failures_total`, `meals_rate_limited_total{kind}`. |
 
@@ -22,11 +22,14 @@ Write: `set_meal`, `clear_meal`, `add_prep`, `remove_prep`, `add_recipe`, `updat
 
 There are no bulk tools, no raw calendar access and no recipe deletion.
 
-**Planning rules** are the household's standing preferences ("no more than 3 meat dinners a
-week", "batch cook during the week"): shared by both users, at most 30 of up to 300 characters.
-`get_week` returns them with every week, so Claude sees them whenever it plans. The server only
-stores them; Claude applies them and says when a request conflicts with one. A removed rule's
-text stays in the audit log.
+**Rules** are the household's standing guidance, of two kinds. *Planning rules* steer which
+meals go on the calendar ("no more than 3 meat dinners a week", "batch cook during the week").
+*Food rules* steer how recipes are adapted ("no shellfish", "add a vegetable where a recipe has
+little"): Claude suggests substitutions or additions unprompted, and changes a stored recipe only
+when asked. Both kinds are shared by both users, at most 30 of each, up to 300 characters.
+`get_week` returns all rules with every week; `get_recipe`, `add_recipe` and `update_recipe`
+return the food rules. The server only stores them; Claude applies them and says when a request
+conflicts with one. A removed rule's text stays in the audit log.
 
 ### Rules the code enforces
 
