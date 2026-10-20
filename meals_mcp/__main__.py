@@ -49,7 +49,16 @@ async def serve() -> None:
     limits = Limits.from_env()
     store = await Store.connect(settings.database_url)
     calendar = GoogleCalendar(GoogleCredentials.load(settings.google_credentials))
-    service = MealsService(calendar, store, limits)
+    busy = None
+    if settings.stalwart_url:
+        from meals_mcp.caldav import StalwartBusy
+
+        if not settings.stalwart_user or not settings.stalwart_password:
+            raise RuntimeError("MEALS_STALWART_URL needs MEALS_STALWART_USER and MEALS_STALWART_PASSWORD")
+        busy = StalwartBusy(
+            settings.stalwart_url, settings.stalwart_user, settings.stalwart_password, settings.busy_exclude
+        )
+    service = MealsService(calendar, store, limits, busy=busy)
     mcp = build_server(service, pocket_id_user(settings.required_group), auth=build_auth(settings, store))
     # A plain socket on "::" also accepts IPv4 (unlike uvicorn's, see ServerSettings.host).
     start_http_server(settings.metrics_port, addr="::")

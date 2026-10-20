@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
 
 from meals_mcp.gcal import Conflict, Event
 
@@ -62,3 +62,16 @@ class FakeCalendar:
         if cur.etag != event.etag:
             raise Conflict("the event changed since it was read")
         del self.events[event.id]
+
+
+class FakeBusy:
+    """Busy intervals as Stalwart would return them, or an error."""
+
+    def __init__(self) -> None:
+        self.blocks: list[tuple[datetime, datetime]] = []
+        self.error: Exception | None = None
+
+    async def busy(self, start: datetime, end: datetime) -> list[tuple[datetime, datetime]]:
+        if self.error:
+            raise self.error
+        return [(s, e) for s, e in self.blocks if s < end and e > start]

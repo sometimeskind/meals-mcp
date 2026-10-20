@@ -61,6 +61,11 @@ class ServerSettings:
     host: str = ""
     port: int = 8000
     metrics_port: int = 9090
+    # Busy times from Stalwart: off unless the URL is set
+    stalwart_url: str | None = None
+    stalwart_user: str | None = None
+    stalwart_password: str | None = None
+    busy_exclude: frozenset[str] = frozenset({"meals"})
 
     @classmethod
     def from_env(cls) -> ServerSettings:
@@ -83,4 +88,10 @@ class ServerSettings:
             ],
             port=_int("MEALS_PORT", 8000),
             metrics_port=_int("MEALS_METRICS_PORT", 9090),
+            stalwart_url=os.environ.get("MEALS_STALWART_URL") or None,
+            stalwart_user=os.environ.get("MEALS_STALWART_USER") or None,
+            stalwart_password=os.environ.get("MEALS_STALWART_PASSWORD") or None,
+            busy_exclude=frozenset(
+                c.strip() for c in os.environ.get("MEALS_BUSY_EXCLUDE", "meals").split(",") if c.strip()
+            ),
         )
