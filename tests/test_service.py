@@ -1,11 +1,13 @@
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 
 from meals_mcp.gcal import Conflict, GoogleAuthError
-from meals_mcp.service import CALENDAR_WRITES, MealsError
+from meals_mcp.caldav import BusyError
+from meals_mcp.service import CALENDAR_WRITES, MealsError, MealsService
 from meals_mcp.store import SCHEMA
 from tests.conftest import PARTNER, TOM
+from tests.fakes import FakeBusy
 
 TODAY = date(2026, 10, 16)
 
@@ -344,3 +346,51 @@ async def test_rules_from_before_food_rules_become_planning_rules(store):
         await c.execute(SCHEMA)
     async with store.tx() as tx:
         assert [(r["kind"], r["text"]) for r in await tx.list_rules()] == [("planning", "old")]
+
+
+# --- busy times ----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def busy() -> FakeBusy:
+    return FakeBusy()
+
+
+@pytest.fixture
+def svc_busy(calendar, store, limits, clock, busy):
+    return MealsService(calendar, store, limits, clock=clock, busy=busy)
+
+
+def _utc(day, hour, minute=0):
+    return datetime(2026, 10, day, hour, minute, tzinfo=UTC)
+
+
+async def test_get_week_lists_merged_busy_times_per_day(svc_busy, busy):
+    busy.blocks = [
+        # Europe/London is UTC+1 in October: 17:00-18:30 UTC is 18:00-19:30 local.
+        (_utc(17, 17), _utc(17, 18, 30)),
+        (_utc(17, 18), _utc(17, 19)),  # another calendar, overlapping: merged
+        (_utc(18, 21), _utc(19, 7)),  # Sunday 22:00 to Monday 08:00 local: split at midnight
+    ]
+    week = await svc_busy.get_week()
+    assert [d["busy"] for d in week["days"][:4]] == [[], ["18:00-20:00"], ["22:00-24:00"], ["00:00-08:00"]]
+    assert "not even whose they are" in week["notice"]
+    assert "busy_error" not in week
+
+
+async def test_a_whole_day_block_reads_all_day(svc_busy, busy):
+    busy.blocks = [(_utc(16, 23), _utc(18, 23))]  # Saturday and Sunday, local
+    week = await svc_busy.get_week()
+    assert [d["busy"] for d in week["days"][:4]] == [[], ["all day"], ["all day"], []]
+
+
+async def test_the_week_still_plans_when_stalwart_fails(svc_busy, busy):
+    busy.error = BusyError("Stalwart unreachable")
+    week = await svc_busy.get_week()
+    assert week["busy_error"] == "Stalwart unreachable"
+    assert all("busy" not in d for d in week["days"])
+
+
+async def test_no_busy_times_unless_configured(svc):
+    week = await svc.get_week()
+    assert "busy" not in week["days"][0] and "busy_error" not in week

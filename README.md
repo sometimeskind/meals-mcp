@@ -31,6 +31,17 @@ when asked. Both kinds are shared by both users, at most 30 of each, up to 300 c
 return the food rules. The server only stores them; Claude applies them and says when a request
 conflicts with one. A removed rule's text stays in the audit log.
 
+**Busy times**: with `MEALS_STALWART_URL` set, `get_week` lists each day's busy times
+(`HH:MM-HH:MM` local, or `all day`), merged across the household's calendars. They come from
+Stalwart, which mirrors the household's Google calendars: a CalDAV `free-busy-query` on every
+calendar collection of `MEALS_STALWART_USER`, less `MEALS_BUSY_EXCLUDE` (Meals itself). The
+credential is a Stalwart app password allowed only discovery and free/busy (`authenticate`,
+`davCalPropFind`, `davCalFreeBusyQuery`), which homelab's `test-stalwart-credentials.sh` proves
+is refused event reads, writes and mail. Only start and end times reach Claude, never anything
+about the appointments or which calendar they're on; the planning rules decide what they mean for
+meals. A calendar that refuses the query is left out (logged); if Stalwart can't be reached,
+`get_week` still returns the week, with `busy_error`.
+
 ### Rules the code enforces
 
 - **Window**: meal and prep dates from 7 days ago to 28 days ahead, in `MEALS_TZ`. A back-filled
@@ -80,6 +91,9 @@ conflicts with one. A removed rule's text stays in the audit log.
 | `MEALS_WINDOW_PAST_DAYS` / `_FUTURE_DAYS` | 7 / 28 | |
 | `MEALS_FREEZER_OLD_DAYS` | 90 | `list_freezer` flags older batches |
 | `MEALS_TITLE_MAX` | 60 | |
+| `MEALS_STALWART_URL` | (off) | Stalwart's base URL, e.g. the in-cluster Service; turns busy times on |
+| `MEALS_STALWART_USER` / `_PASSWORD` | | The account whose calendars count, and its free/busy-only app password |
+| `MEALS_BUSY_EXCLUDE` | `meals` | Comma-separated collection names left out of busy times |
 | `MEALS_PORT` / `MEALS_METRICS_PORT` | 8000 / 9090 | |
 
 ## Bootstrap (once, on the workstation)
