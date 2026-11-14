@@ -1,4 +1,4 @@
-FROM python:3.14-slim AS prod
+FROM python:3.15-slim AS prod
 
 COPY meals_mcp/ /build/meals_mcp/
 COPY pyproject.toml requirements.txt /build/
